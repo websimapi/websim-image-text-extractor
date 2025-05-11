@@ -121,6 +121,56 @@
             font-style: italic;
             text-align: center;
         }
+        
+        /* New styles for voice sample management */
+        .voice-sample-form {
+            margin-top: 15px;
+            display: none;
+        }
+        
+        .voice-sample-selection {
+            margin: 15px 0;
+            padding: 10px;
+            background-color: #f0f8ff;
+            border-radius: 5px;
+        }
+        
+        .sample-list {
+            margin: 10px 0;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        
+        .sample-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 10px;
+            margin: 5px 0;
+            background-color: #e3f2fd;
+            border-radius: 4px;
+        }
+        
+        .sample-item.selected {
+            background-color: #bbdefb;
+            border: 1px solid #64b5f6;
+        }
+        
+        .sample-item button {
+            padding: 5px 8px;
+            background-color: #f44336;
+            font-size: 12px;
+        }
+        
+        .sample-item button:hover {
+            background-color: #d32f2f;
+        }
+        
+        .no-samples {
+            font-style: italic;
+            color: #666;
+            padding: 10px 0;
+        }
     </style>
 </head>
 <body>
@@ -147,15 +197,34 @@
         
         <div class="voice-controls">
             <h3>Custom Voice Narrator</h3>
+            
+            <div class="voice-sample-selection">
+                <h4>Saved Voice Samples</h4>
+                <select id="voiceSampleSelect">
+                    <option value="default">Default System Voice</option>
+                </select>
+                <div id="sampleList" class="sample-list">
+                    <p class="no-samples">No saved voice samples</p>
+                </div>
+            </div>
+            
             <div>
                 <button id="startRecording" disabled>Record Your Voice</button>
                 <button id="stopRecording" disabled>Stop Recording</button>
                 <p class="recorder-status">Status: <span id="recordingStatus">Not recording</span></p>
             </div>
+            
             <div>
                 <h4>Voice Sample:</h4>
                 <audio id="recordedAudio" class="audio-player" controls></audio>
+                
+                <div id="voiceSampleForm" class="voice-sample-form">
+                    <label for="sampleName">Sample Name:</label>
+                    <input type="text" id="sampleName" placeholder="e.g., My Voice">
+                    <button id="saveVoiceSample">Save Voice Sample</button>
+                </div>
             </div>
+            
             <div>
                 <h4>Text Narration:</h4>
                 <button id="playTTS" disabled>Read Text Aloud</button>
@@ -181,6 +250,11 @@
         const recordedAudio = document.getElementById('recordedAudio');
         const playTTSBtn = document.getElementById('playTTS');
         const ttsAudio = document.getElementById('ttsAudio');
+        const voiceSampleForm = document.getElementById('voiceSampleForm');
+        const sampleNameInput = document.getElementById('sampleName');
+        const saveVoiceSampleBtn = document.getElementById('saveVoiceSample');
+        const voiceSampleSelect = document.getElementById('voiceSampleSelect');
+        const sampleList = document.getElementById('sampleList');
 
         // State variables
         let stream = null;
@@ -189,6 +263,109 @@
         let audioChunks = [];
         let voiceSampleBlob = null;
         let extractedText = [];
+        let savedVoiceSamples = {};
+        let selectedVoiceSampleId = 'default';
+
+        // Load saved voice samples from localStorage
+        function loadSavedVoiceSamples() {
+            const savedSamples = localStorage.getItem('voiceSamples');
+            if (savedSamples) {
+                savedVoiceSamples = JSON.parse(savedSamples);
+                updateVoiceSamplesList();
+            }
+        }
+
+        // Save voice samples to localStorage
+        function saveVoiceSamplesToStorage() {
+            localStorage.setItem('voiceSamples', JSON.stringify(savedVoiceSamples));
+        }
+
+        // Update the list of voice samples in the UI
+        function updateVoiceSamplesList() {
+            // Clear the dropdown (except default option)
+            while (voiceSampleSelect.options.length > 1) {
+                voiceSampleSelect.remove(1);
+            }
+            
+            // Update the sample list display
+            sampleList.innerHTML = '';
+            
+            const sampleIds = Object.keys(savedVoiceSamples);
+            
+            if (sampleIds.length === 0) {
+                sampleList.innerHTML = '<p class="no-samples">No saved voice samples</p>';
+                return;
+            }
+            
+            // Add samples to dropdown and list
+            sampleIds.forEach(id => {
+                const sample = savedVoiceSamples[id];
+                
+                // Add to dropdown
+                const option = document.createElement('option');
+                option.value = id;
+                option.textContent = sample.name;
+                voiceSampleSelect.appendChild(option);
+                
+                // Add to visual list
+                const sampleItem = document.createElement('div');
+                sampleItem.className = 'sample-item' + (id === selectedVoiceSampleId ? ' selected' : '');
+                sampleItem.dataset.id = id;
+                
+                sampleItem.innerHTML = `
+                    <span>${sample.name}</span>
+                    <button class="delete-sample" data-id="${id}">Delete</button>
+                `;
+                
+                sampleList.appendChild(sampleItem);
+            });
+            
+            // Select the currently selected voice in the dropdown
+            voiceSampleSelect.value = selectedVoiceSampleId;
+            
+            // Add event listeners to the delete buttons
+            document.querySelectorAll('.delete-sample').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const sampleId = e.target.dataset.id;
+                    
+                    if (confirm(`Delete voice sample "${savedVoiceSamples[sampleId].name}"?`)) {
+                        delete savedVoiceSamples[sampleId];
+                        saveVoiceSamplesToStorage();
+                        
+                        // If the deleted sample was selected, reset to default
+                        if (selectedVoiceSampleId === sampleId) {
+                            selectedVoiceSampleId = 'default';
+                        }
+                        
+                        updateVoiceSamplesList();
+                    }
+                });
+            });
+            
+            // Add click events to sample items for selection
+            document.querySelectorAll('.sample-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    const sampleId = item.dataset.id;
+                    selectedVoiceSampleId = sampleId;
+                    voiceSampleSelect.value = sampleId;
+                    
+                    // Update selected visual
+                    document.querySelectorAll('.sample-item').forEach(i => {
+                        i.classList.remove('selected');
+                    });
+                    item.classList.add('selected');
+                    
+                    // Enable TTS if we have text
+                    if (extractedText.length > 0) {
+                        playTTSBtn.disabled = false;
+                    }
+                });
+            });
+        }
+
+        // Initialize
+        loadSavedVoiceSamples();
 
         // Start the camera
         startCameraBtn.addEventListener('click', async () => {
@@ -334,6 +511,9 @@
                     const voiceSampleURL = URL.createObjectURL(voiceSampleBlob);
                     recordedAudio.src = voiceSampleURL;
                     
+                    // Show the voice sample form for saving
+                    voiceSampleForm.style.display = 'block';
+                    
                     // Only enable TTS button if we have extracted text
                     if (extractedText.length > 0) {
                         playTTSBtn.disabled = false;
@@ -347,6 +527,7 @@
                 recordingStatus.textContent = 'Recording...';
                 startRecordingBtn.disabled = true;
                 stopRecordingBtn.disabled = false;
+                voiceSampleForm.style.display = 'none';
             } catch (err) {
                 console.error('Error starting voice recording:', err);
                 alert('Error accessing microphone: ' + err.message);
@@ -362,6 +543,78 @@
             }
         });
 
+        // Save voice sample
+        saveVoiceSampleBtn.addEventListener('click', async () => {
+            const sampleName = sampleNameInput.value.trim();
+            
+            if (!sampleName) {
+                alert('Please enter a name for your voice sample');
+                return;
+            }
+            
+            if (!voiceSampleBlob) {
+                alert('No voice sample recorded');
+                return;
+            }
+            
+            try {
+                // Convert blob to base64 data
+                const reader = new FileReader();
+                const voiceDataPromise = new Promise((resolve, reject) => {
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(voiceSampleBlob);
+                });
+                
+                const voiceData = await voiceDataPromise;
+                
+                // Generate a unique ID
+                const sampleId = 'sample_' + Date.now();
+                
+                // Save the sample
+                savedVoiceSamples[sampleId] = {
+                    name: sampleName,
+                    data: voiceData
+                };
+                
+                saveVoiceSamplesToStorage();
+                
+                // Select this new sample
+                selectedVoiceSampleId = sampleId;
+                
+                // Update the UI
+                updateVoiceSamplesList();
+                
+                // Reset the form
+                sampleNameInput.value = '';
+                voiceSampleForm.style.display = 'none';
+                
+                alert('Voice sample saved!');
+            } catch (err) {
+                console.error('Error saving voice sample:', err);
+                alert('Error saving voice sample: ' + err.message);
+            }
+        });
+
+        // Voice sample selection change
+        voiceSampleSelect.addEventListener('change', function() {
+            selectedVoiceSampleId = this.value;
+            
+            // Update selected visual in list
+            document.querySelectorAll('.sample-item').forEach(item => {
+                if (item.dataset.id === selectedVoiceSampleId) {
+                    item.classList.add('selected');
+                } else {
+                    item.classList.remove('selected');
+                }
+            });
+            
+            // Enable TTS if we have text
+            if (extractedText.length > 0) {
+                playTTSBtn.disabled = false;
+            }
+        });
+
         // Text-to-Speech with custom voice
         playTTSBtn.addEventListener('click', async () => {
             if (extractedText.length === 0) {
@@ -373,12 +626,21 @@
                 playTTSBtn.disabled = true;
                 playTTSBtn.textContent = 'Generating audio...';
                 
-                // Generate TTS using the combined text and custom voice
+                // Generate TTS using the combined text and selected voice
                 const allText = extractedText.join(' Next page. ');
                 
                 let ttsResult;
-                if (voiceSampleBlob) {
-                    // Convert blob to base64 data
+                
+                if (selectedVoiceSampleId !== 'default') {
+                    // Use selected voice sample from storage
+                    const selectedSample = savedVoiceSamples[selectedVoiceSampleId];
+                    
+                    ttsResult = await websim.textToSpeech({
+                        text: allText,
+                        voice_sample: selectedSample.data
+                    });
+                } else if (voiceSampleBlob) {
+                    // Use currently recorded voice sample (not yet saved)
                     const reader = new FileReader();
                     const voiceDataPromise = new Promise((resolve, reject) => {
                         reader.onload = () => resolve(reader.result);
@@ -388,7 +650,6 @@
                     
                     const voiceData = await voiceDataPromise;
                     
-                    // Use recorded voice sample (now as base64 data)
                     ttsResult = await websim.textToSpeech({
                         text: allText,
                         voice_sample: voiceData
@@ -415,18 +676,16 @@
                 
                 // Fallback to basic TTS if custom voice fails
                 try {
-                    if (voiceSampleBlob) {
-                        console.log('Attempting fallback to default voice...');
-                        const allText = extractedText.join(' Next page. ');
-                        const fallbackResult = await websim.textToSpeech({
-                            text: allText,
-                            voice: "en-male"
-                        });
-                        
-                        ttsAudio.src = fallbackResult.url;
-                        ttsAudio.play();
-                        alert('Custom voice failed. Using default voice instead.');
-                    }
+                    console.log('Attempting fallback to default voice...');
+                    const allText = extractedText.join(' Next page. ');
+                    const fallbackResult = await websim.textToSpeech({
+                        text: allText,
+                        voice: "en-male"
+                    });
+                    
+                    ttsAudio.src = fallbackResult.url;
+                    ttsAudio.play();
+                    alert('Custom voice failed. Using default voice instead.');
                 } catch (fallbackErr) {
                     console.error('Fallback TTS also failed:', fallbackErr);
                 }
