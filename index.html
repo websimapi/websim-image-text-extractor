@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Text Extractor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .camera-container {
+            position: relative;
+            width: 100%;
+            margin: 20px 0;
+        }
+        #video {
+            width: 100%;
+            border-radius: 8px;
+            display: block;
+        }
+        #canvas {
+            display: none;
+        }
+        #capturedImage {
+            width: 100%;
+            border-radius: 8px;
+            display: none;
+            margin-top: 10px;
+        }
+        .button-container {
+            display: flex;
+            justify-content: space-between;
+            margin: 15px 0;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .camera-toggle {
+            background-color: #2196F3;
+        }
+        .camera-toggle:hover {
+            background-color: #0b7dda;
+        }
+        .extract-button {
+            background-color: #ff9800;
+        }
+        .extract-button:hover {
+            background-color: #e68a00;
+        }
+        .text-output {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            min-height: 100px;
+            background-color: #f9f9f9;
+        }
+        .voice-controls {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #f0f8ff;
+        }
+        .loading {
+            text-align: center;
+            margin: 10px 0;
+            display: none;
+        }
+        .page {
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 1px dashed #ccc;
+        }
+        .page:last-child {
+            border-bottom: none;
+        }
+        .recorder-status {
+            font-size: 14px;
+            color: #666;
+            margin: 5px 0;
+        }
+        #recordingStatus {
+            color: #e53935;
+        }
+        .audio-player {
+            width: 100%;
+            margin: 10px 0;
+        }
+        .status-message {
+            color: #666;
+            font-style: italic;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Image Text Extractor</h1>
+        
+        <div class="camera-container">
+            <video id="video" autoplay playsinline></video>
+            <canvas id="canvas"></canvas>
+            <img id="capturedImage" alt="Captured image">
+            <div class="loading" id="loadingIndicator">Processing image...</div>
+        </div>
+        
+        <div class="button-container">
+            <button id="startCamera">Start Camera</button>
+            <button id="switchCamera" class="camera-toggle" disabled>Switch Camera</button>
+            <button id="captureImage" disabled>Capture Image</button>
+            <button id="extractText" class="extract-button" disabled>Extract Text</button>
+        </div>
+        
+        <div class="text-output" id="textOutput">
+            <p class="status-message">Captured text will appear here</p>
+        </div>
+        
+        <div class="voice-controls">
+            <h3>Custom Voice Narrator</h3>
+            <div>
+                <button id="startRecording" disabled>Record Your Voice</button>
+                <button id="stopRecording" disabled>Stop Recording</button>
+                <p class="recorder-status">Status: <span id="recordingStatus">Not recording</span></p>
+            </div>
+            <div>
+                <h4>Voice Sample:</h4>
+                <audio id="recordedAudio" class="audio-player" controls></audio>
+            </div>
+            <div>
+                <h4>Text Narration:</h4>
+                <button id="playTTS" disabled>Read Text Aloud</button>
+                <audio id="ttsAudio" class="audio-player" controls></audio>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // DOM Elements
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const capturedImage = document.getElementById('capturedImage');
+        const startCameraBtn = document.getElementById('startCamera');
+        const switchCameraBtn = document.getElementById('switchCamera');
+        const captureImageBtn = document.getElementById('captureImage');
+        const extractTextBtn = document.getElementById('extractText');
+        const textOutput = document.getElementById('textOutput');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const startRecordingBtn = document.getElementById('startRecording');
+        const stopRecordingBtn = document.getElementById('stopRecording');
+        const recordingStatus = document.getElementById('recordingStatus');
+        const recordedAudio = document.getElementById('recordedAudio');
+        const playTTSBtn = document.getElementById('playTTS');
+        const ttsAudio = document.getElementById('ttsAudio');
+
+        // State variables
+        let stream = null;
+        let facingMode = 'environment'; // Start with back camera
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let voiceSampleURL = null;
+        let extractedText = [];
+
+        // Start the camera
+        startCameraBtn.addEventListener('click', async () => {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: facingMode },
+                    audio: false
+                });
+                video.srcObject = stream;
+                startCameraBtn.disabled = true;
+                switchCameraBtn.disabled = false;
+                captureImageBtn.disabled = false;
+                startRecordingBtn.disabled = false;
+            } catch (err) {
+                console.error('Error accessing camera:', err);
+                alert('Error accessing camera: ' + err.message);
+            }
+        });
+
+        // Switch between front and back camera
+        switchCameraBtn.addEventListener('click', async () => {
+            if (stream) {
+                // Stop all tracks
+                stream.getTracks().forEach(track => track.stop());
+            }
+            
+            // Toggle facing mode
+            facingMode = facingMode === 'user' ? 'environment' : 'user';
+            
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: facingMode },
+                    audio: false
+                });
+                video.srcObject = stream;
+            } catch (err) {
+                console.error('Error switching camera:', err);
+                alert('Error switching camera: ' + err.message);
+            }
+        });
+
+        // Capture image
+        captureImageBtn.addEventListener('click', () => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            capturedImage.src = canvas.toDataURL('image/png');
+            capturedImage.style.display = 'block';
+            video.style.display = 'none';
+            
+            extractTextBtn.disabled = false;
+        });
+
+        // Extract text from image using LLM
+        extractTextBtn.addEventListener('click', async () => {
+            loadingIndicator.style.display = 'block';
+            textOutput.innerHTML = '<p class="status-message">Analyzing image...</p>';
+            
+            try {
+                const imageDataUrl = capturedImage.src;
+                
+                // Call the LLM to extract text from the image
+                const completion = await websim.chat.completions.create({
+                    messages: [
+                        {
+                            role: "system",
+                            content: `Extract all text visible in the image. 
+                            If the image contains multiple pages, separate them as different pages.
+                            Respond directly with JSON, following this JSON schema, and no other text:
+                            {
+                                "pages": [
+                                    {
+                                        "pageNumber": number,
+                                        "text": string
+                                    }
+                                ],
+                                "totalPages": number
+                            }`
+                        },
+                        {
+                            role: "user",
+                            content: [
+                                {
+                                    type: "text",
+                                    text: "Extract all text from this image and format it as specified."
+                                },
+                                {
+                                    type: "image_url",
+                                    image_url: { url: imageDataUrl }
+                                }
+                            ]
+                        }
+                    ],
+                    json: true
+                });
+                
+                // Process the result
+                const result = JSON.parse(completion.content);
+                
+                // Store extracted text
+                extractedText = result.pages.map(page => page.text);
+                
+                // Display the extracted text
+                let outputHTML = '';
+                if (result.totalPages > 0) {
+                    result.pages.forEach(page => {
+                        outputHTML += `<div class="page">
+                            <h4>Page ${page.pageNumber}</h4>
+                            <p>${page.text}</p>
+                        </div>`;
+                    });
+                    
+                    // Enable TTS button
+                    playTTSBtn.disabled = voiceSampleURL === null;
+                } else {
+                    outputHTML = '<p>No text found in the image.</p>';
+                }
+                
+                textOutput.innerHTML = outputHTML;
+            } catch (err) {
+                console.error('Error extracting text:', err);
+                textOutput.innerHTML = '<p class="status-message">Error extracting text. Please try again.</p>';
+            } finally {
+                loadingIndicator.style.display = 'none';
+            }
+        });
+
+        // Voice recording functionality
+        startRecordingBtn.addEventListener('click', async () => {
+            try {
+                const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                mediaRecorder = new MediaRecorder(audioStream);
+                audioChunks = [];
+                
+                mediaRecorder.ondataavailable = (event) => {
+                    audioChunks.push(event.data);
+                };
+                
+                mediaRecorder.onstop = () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                    voiceSampleURL = URL.createObjectURL(audioBlob);
+                    recordedAudio.src = voiceSampleURL;
+                    
+                    // Only enable TTS button if we have extracted text
+                    if (extractedText.length > 0) {
+                        playTTSBtn.disabled = false;
+                    }
+                    
+                    // Stop tracks to release microphone
+                    audioStream.getTracks().forEach(track => track.stop());
+                };
+                
+                mediaRecorder.start();
+                recordingStatus.textContent = 'Recording...';
+                startRecordingBtn.disabled = true;
+                stopRecordingBtn.disabled = false;
+            } catch (err) {
+                console.error('Error starting voice recording:', err);
+                alert('Error accessing microphone: ' + err.message);
+            }
+        });
+
+        stopRecordingBtn.addEventListener('click', () => {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                recordingStatus.textContent = 'Voice sample recorded';
+                startRecordingBtn.disabled = false;
+                stopRecordingBtn.disabled = true;
+            }
+        });
+
+        // Text-to-Speech with custom voice
+        playTTSBtn.addEventListener('click', async () => {
+            if (extractedText.length === 0) {
+                alert('No text to read aloud.');
+                return;
+            }
+            
+            try {
+                playTTSBtn.disabled = true;
+                playTTSBtn.textContent = 'Generating audio...';
+                
+                // Generate TTS using the combined text and custom voice
+                const allText = extractedText.join(' Next page. ');
+                
+                let ttsResult;
+                if (voiceSampleURL) {
+                    // Use recorded voice sample
+                    ttsResult = await websim.textToSpeech({
+                        text: allText,
+                        voice_sample: voiceSampleURL
+                    });
+                } else {
+                    // Fallback to default voice
+                    ttsResult = await websim.textToSpeech({
+                        text: allText,
+                        voice: "en-male"
+                    });
+                }
+                
+                // Update audio player with the TTS result
+                ttsAudio.src = ttsResult.url;
+                ttsAudio.play();
+            } catch (err) {
+                console.error('Error generating text-to-speech:', err);
+                alert('Error generating speech: ' + err.message);
+            } finally {
+                playTTSBtn.disabled = false;
+                playTTSBtn.textContent = 'Read Text Aloud';
+            }
+        });
+    </script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>
+
