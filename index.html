@@ -187,7 +187,7 @@
         let facingMode = 'environment'; // Start with back camera
         let mediaRecorder = null;
         let audioChunks = [];
-        let voiceSampleURL = null;
+        let voiceSampleBlob = null;
         let extractedText = [];
 
         // Start the camera
@@ -303,7 +303,7 @@
                     });
                     
                     // Enable TTS button
-                    playTTSBtn.disabled = voiceSampleURL === null;
+                    playTTSBtn.disabled = voiceSampleBlob === null;
                 } else {
                     outputHTML = '<p>No text found in the image.</p>';
                 }
@@ -330,8 +330,8 @@
                 };
                 
                 mediaRecorder.onstop = () => {
-                    const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-                    voiceSampleURL = URL.createObjectURL(audioBlob);
+                    voiceSampleBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                    const voiceSampleURL = URL.createObjectURL(voiceSampleBlob);
                     recordedAudio.src = voiceSampleURL;
                     
                     // Only enable TTS button if we have extracted text
@@ -377,11 +377,21 @@
                 const allText = extractedText.join(' Next page. ');
                 
                 let ttsResult;
-                if (voiceSampleURL) {
-                    // Use recorded voice sample
+                if (voiceSampleBlob) {
+                    // Convert blob to base64 data
+                    const reader = new FileReader();
+                    const voiceDataPromise = new Promise((resolve, reject) => {
+                        reader.onload = () => resolve(reader.result);
+                        reader.onerror = reject;
+                        reader.readAsDataURL(voiceSampleBlob);
+                    });
+                    
+                    const voiceData = await voiceDataPromise;
+                    
+                    // Use recorded voice sample (now as base64 data)
                     ttsResult = await websim.textToSpeech({
                         text: allText,
-                        voice_sample: voiceSampleURL
+                        voice_sample: voiceData
                     });
                 } else {
                     // Fallback to default voice
@@ -396,7 +406,30 @@
                 ttsAudio.play();
             } catch (err) {
                 console.error('Error generating text-to-speech:', err);
-                alert('Error generating speech: ' + err.message);
+                alert('Error generating speech: ' + (err.message || 'Unknown error'));
+                
+                // Log more details for debugging
+                if (err.stack) {
+                    console.error('Stack trace:', err.stack);
+                }
+                
+                // Fallback to basic TTS if custom voice fails
+                try {
+                    if (voiceSampleBlob) {
+                        console.log('Attempting fallback to default voice...');
+                        const allText = extractedText.join(' Next page. ');
+                        const fallbackResult = await websim.textToSpeech({
+                            text: allText,
+                            voice: "en-male"
+                        });
+                        
+                        ttsAudio.src = fallbackResult.url;
+                        ttsAudio.play();
+                        alert('Custom voice failed. Using default voice instead.');
+                    }
+                } catch (fallbackErr) {
+                    console.error('Fallback TTS also failed:', fallbackErr);
+                }
             } finally {
                 playTTSBtn.disabled = false;
                 playTTSBtn.textContent = 'Read Text Aloud';
@@ -406,4 +439,3 @@
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body>
 </html>
-
